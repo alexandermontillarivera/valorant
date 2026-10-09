@@ -1,34 +1,61 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { motion } from "motion/react"
-import { ChevronRight, Medal, Trophy } from "lucide-react"
+import { ChevronRight, Loader2, Medal, Trophy } from "lucide-react"
 import clsx from "clsx"
 import { acsOf, adrOf, hsOf, kdOf, summarize } from "@/lib/stats"
 import { clockTime, dayLabel, duration, fixed, pct, signed } from "@/lib/format"
 import { AgentIcon, Img, spring, useCatalog } from "@/components/ui/primitives"
 import { PerfBadge } from "@/components/ui/perf"
+import { ErrorBox, ListSkeleton } from "@/components/ui/Skeleton"
+import { fetchView, useView, viewUrl } from "@/hooks/useView"
 import type { Game } from "@/interfaces/game"
+import type { MatchesView } from "@/interfaces/views"
 
 const PAGE = 30
 
 export function MatchList({
-	games,
+	filters,
 	onOpen,
 }: {
-	games: Game[]
+	filters: Record<string, string>
 	onOpen: (g: Game) => void
 }) {
-	const [shown, setShown] = useState(PAGE)
+	const first = useView<MatchesView>("matches", { ...filters, limit: PAGE, offset: 0 })
+	const [more, setMore] = useState<Game[]>([])
+	const [loadingMore, setLoadingMore] = useState(false)
+	const filterKey = JSON.stringify(filters)
+	useEffect(() => setMore([]), [filterKey])
+
+	const games = useMemo(
+		() => [...(first.data?.games ?? []), ...more],
+		[first.data, more],
+	)
+	const total = first.data?.total ?? 0
+
+	const loadMore = async () => {
+		setLoadingMore(true)
+		try {
+			const page = await fetchView<MatchesView>(
+				viewUrl("matches", { ...filters, limit: PAGE, offset: games.length }),
+			)
+			setMore((m) => [...m, ...page.games])
+		} finally {
+			setLoadingMore(false)
+		}
+	}
 
 	const groups = useMemo(() => {
 		const out: { day: string; games: Game[] }[] = []
-		for (const g of games.slice(0, shown)) {
+		for (const g of games) {
 			const day = dayLabel(g.startedAt)
 			if (out.at(-1)?.day === day) out.at(-1)!.games.push(g)
 			else out.push({ day, games: [g] })
 		}
 		return out
-	}, [games, shown])
+	}, [games])
 
+	if (first.error) return <ErrorBox message={first.error} />
+	if (!first.data) return <ListSkeleton />
 	if (!games.length)
 		return (
 			<div className="panel py-24 text-center text-fg-3">
@@ -60,12 +87,14 @@ export function MatchList({
 					</section>
 				)
 			})}
-			{shown < games.length && (
+			{games.length < total && (
 				<button
-					onClick={() => setShown((n) => n + PAGE)}
-					className="pressable mx-auto rounded-full bg-white/[0.05] px-5 py-2.5 text-[13px] font-medium text-fg-2 ring-1 ring-line hover:bg-white/[0.08] hover:text-fg"
+					onClick={loadMore}
+					disabled={loadingMore}
+					className="pressable mx-auto inline-flex items-center gap-2 rounded-full bg-white/[0.05] px-5 py-2.5 text-[13px] font-medium text-fg-2 ring-1 ring-line hover:bg-white/[0.08] hover:text-fg disabled:opacity-60"
 				>
-					Cargar más · quedan {games.length - shown}
+					{loadingMore && <Loader2 size={14} className="animate-spin" />}
+					Cargar más · quedan {total - games.length}
 				</button>
 			)}
 		</div>

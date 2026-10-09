@@ -17,6 +17,13 @@ import {
 } from "@/components/ui/primitives"
 import { perfColor } from "@/components/ui/perf"
 import { Heatmap } from "@/components/charts/Heatmap"
+import { useView } from "@/hooks/useView"
+import type {
+	AgentsView,
+	GroupsView,
+	HeatmapView,
+	WeaponsView,
+} from "@/interfaces/views"
 import type { Game } from "@/interfaces/game"
 import type { Profile } from "@/interfaces/player"
 import type { Group } from "@/interfaces/stats"
@@ -56,17 +63,9 @@ const COLS: Col[] = [
 	},
 ]
 
-export function Agents({ games }: { games: Game[] }) {
+export function Agents({ view }: { view: AgentsView }) {
 	const catalog = useCatalog()
-	const groups = useMemo(() => groupBy(games, (g) => g.agent), [games])
-	const roles = useMemo(
-		() =>
-			groupBy(
-				games,
-				(g) => catalog.agents[g.agent.toLowerCase()]?.role ?? "Otro",
-			),
-		[games, catalog],
-	)
+	const { groups, roles } = view
 	const [sort, setSort] = useState<{ key: keyof Group; desc: boolean }>({
 		key: "games",
 		desc: true,
@@ -76,7 +75,10 @@ export function Agents({ games }: { games: Game[] }) {
 			((a[sort.key] as number) - (b[sort.key] as number)) *
 			(sort.desc ? -1 : 1),
 	)
-	const total = Math.max(1, games.length)
+	const total = Math.max(
+		1,
+		groups.reduce((a, g) => a + g.games, 0),
+	)
 
 	if (!groups.length) return <EmptyState />
 
@@ -187,9 +189,15 @@ export function Agents({ games }: { games: Game[] }) {
 	)
 }
 
-export function Maps({ games }: { games: Game[] }) {
+export function Maps({
+	view,
+	filters,
+}: {
+	view: GroupsView
+	filters: Record<string, string>
+}) {
 	const catalog = useCatalog()
-	const groups = useMemo(() => groupBy(games, (g) => g.map), [games])
+	const { groups } = view
 	const [selected, setSelected] = useState<string | null>(null)
 	const [show, setShow] = useState<"both" | "kills" | "deaths">("both")
 	const active =
@@ -197,10 +205,12 @@ export function Maps({ games }: { games: Game[] }) {
 		groups.find((g) => catalog.maps[g.key.toLowerCase()]?.minimap)?.key ??
 		null
 	const activeMap = active ? catalog.maps[active.toLowerCase()] : undefined
-	const points = useMemo(
-		() => games.filter((g) => g.map === active).flatMap((g) => g.d?.pts ?? []),
-		[games, active],
+	const heatmap = useView<HeatmapView>(
+		"heatmap",
+		{ ...filters, map: active ?? "" },
+		!!active,
 	)
+	const points = heatmap.data?.points ?? []
 	const activeGroup = groups.find((g) => g.key === active)
 
 	if (!groups.length) return <EmptyState />
@@ -340,12 +350,8 @@ export function Maps({ games }: { games: Game[] }) {
 	)
 }
 
-export function Weapons({ games }: { games: Game[] }) {
-	const weaponInfo = useWeaponInfo()
-	const stats = useMemo(
-		() => weaponStats(games, weaponInfo),
-		[games, weaponInfo],
-	)
+export function Weapons({ view }: { view: WeaponsView }) {
+	const stats = view.weapons
 	const killedBy = useMemo(
 		() =>
 			[...stats]
@@ -498,17 +504,14 @@ const seasonLabel = (s: string) =>
 
 export function Seasons({
 	profile,
-	games,
+	view,
 }: {
 	profile: Profile
-	games: Game[]
+	view: GroupsView
 }) {
 	const bySeason = useMemo(
-		() =>
-			new Map(
-				groupBy(games, (g) => g.season).map((g) => [g.key.toLowerCase(), g]),
-			),
-		[games],
+		() => new Map(view.groups.map((g) => [g.key.toLowerCase(), g])),
+		[view],
 	)
 	const keys = useMemo(() => {
 		const all = new Set([

@@ -3,6 +3,7 @@ import Layout from "@/layouts/Layout.astro"
 import PlayerApp from "@/components/player/PlayerApp"
 import ErrorState from "@/components/ErrorState.astro"
 import { PLAYER, loadDashboard } from "@/lib/dashboard"
+import { shellOf } from "@/lib/views"
 
 const url = Astro.url
 const result = await loadDashboard()
@@ -19,7 +20,7 @@ const titles: Record<number, string> = {
 	{result.ok ? (
 		<PlayerApp
 			client:load
-			data={result.data}
+			data={shellOf(result.data)}
 			catalog={result.catalog}
 			initialTab={param("tab")}
 			initialMode={param("mode")}

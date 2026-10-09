@@ -58,25 +58,24 @@ export function Heatmap({
 						/>
 					))}
 				</g>
-				{dots.map((d, i) => (
-					<motion.circle
-						key={i}
-						cx={d.u * 1000}
-						cy={d.v * 1000}
-						r={5}
-						fill={d.kind === 0 ? "#32d583" : "#ff4655"}
-						stroke="rgba(0,0,0,0.6)"
-						strokeWidth={1.5}
-						initial={{ opacity: 0, scale: 0 }}
-						animate={{ opacity: 0.9, scale: 1 }}
-						transition={{
-							type: "spring",
-							bounce: 0,
-							duration: 0.4,
-							delay: Math.min(i, 200) * 0.002,
-						}}
-					/>
-				))}
+				<motion.g
+					key={`${map.id}-${show}-${dots.length}`}
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 0.9 }}
+					transition={{ duration: 0.5 }}
+				>
+					{dots.map((d, i) => (
+						<circle
+							key={i}
+							cx={d.u * 1000}
+							cy={d.v * 1000}
+							r={5}
+							fill={d.kind === 0 ? "#32d583" : "#ff4655"}
+							stroke="rgba(0,0,0,0.6)"
+							strokeWidth={1.5}
+						/>
+					))}
+				</motion.g>
 			</svg>
 			{!dots.length && (
 				<div className="absolute inset-0 grid place-items-center text-[13px] text-fg-3">

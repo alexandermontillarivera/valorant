@@ -12,7 +12,7 @@ import {
 	Zap,
 } from "lucide-react"
 import clsx from "clsx"
-import { acsOf, adrOf, groupBy, hsOf, kdOf } from "@/lib/stats"
+import { acsOf, adrOf, hsOf, kdOf } from "@/lib/stats"
 import {
 	clockTime,
 	dayLabel,
@@ -42,6 +42,7 @@ import {
 	Sparkline,
 } from "@/components/charts/charts"
 import type { Game } from "@/interfaces/game"
+import type { OverviewView } from "@/interfaces/views"
 import type { RRPoint } from "@/interfaces/player"
 import type { Summary } from "@/interfaces/stats"
 
@@ -54,37 +55,22 @@ const stagger = (i: number) => ({
 type Metric = "perf" | "acs" | "kd" | "adr"
 
 interface Props {
-	games: Game[]
 	summary: Summary
-	rrHistory: RRPoint[]
+	view: OverviewView
 	onOpen: (g: Game) => void
 	onTab: (t: string) => void
 }
 
-export function Overview({
-	games,
-	summary: s,
-	rrHistory,
-	onOpen,
-	onTab,
-}: Props) {
+export function Overview({ summary: s, view, onOpen, onTab }: Props) {
 	const catalog = useCatalog()
 	const nameOfTier = useTierName()
-	const recent = useMemo(() => games.slice(0, 40).reverse(), [games])
-	const agents = useMemo(
-		() => groupBy(games, (g) => g.agent).slice(0, 4),
-		[games],
-	)
-	const maps = useMemo(() => groupBy(games, (g) => g.map).slice(0, 4), [games])
+	const games = view.recent
+	const recent = useMemo(() => [...games].reverse(), [games])
+	const { agents, maps, rr } = view
 	const hasPerf = s.perfN > 0
 	const [metric, setMetric] = useState<Metric>(hasPerf ? "perf" : "acs")
 
-	const rr = useMemo(() => {
-		const ids = new Set(games.map((g) => g.id))
-		return rrHistory.filter((p) => ids.has(p.matchId))
-	}, [games, rrHistory])
-
-	if (!games.length) return <Empty />
+	if (!s.games) return <Empty />
 
 	const series = (f: (g: Game) => number | undefined) =>
 		recent.map(f).filter((v): v is number => v !== undefined)

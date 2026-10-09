@@ -4,6 +4,7 @@ import clsx from "clsx"
 import { perfColor } from "@/components/ui/perf"
 import { cardArt, signed } from "@/lib/format"
 import { SyncBadge } from "@/components/player/SyncBadge"
+import { Block } from "@/components/ui/Skeleton"
 import {
 	AnimatedNumber,
 	Img,
@@ -22,7 +23,7 @@ export function Hero({
 	sync,
 }: {
 	profile: Profile
-	summary: Summary
+	summary?: Summary
 	sync: SyncStatus
 }) {
 	const catalog = useCatalog()
@@ -123,7 +124,14 @@ export function Hero({
 						</div>
 					</div>
 
-					{summary.perfN > 0 && (
+					{!summary && (
+						<div className="glass flex w-[230px] flex-col justify-center gap-2 rounded-[20px] px-4 py-3 ring-1 ring-white/[0.08]">
+							<Block className="h-2.5 w-28" />
+							<Block className="h-7 w-16" />
+							<Block className="h-2.5 w-24" />
+						</div>
+					)}
+					{summary && summary.perfN > 0 && (
 						<div className="glass flex items-center gap-4 rounded-[20px] py-3 pr-5 pl-4 ring-1 ring-white/[0.08]">
 							<div>
 								<div className="eyebrow">Performance Score</div>

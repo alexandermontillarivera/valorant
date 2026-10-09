@@ -1,7 +1,15 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import clsx from "clsx"
-import { filterGames, summarize } from "@/lib/stats"
+import { useView } from "@/hooks/useView"
+import {
+	Block,
+	ErrorBox,
+	GridSkeleton,
+	OverviewSkeleton,
+	TableSkeleton,
+	TwoColumnSkeleton,
+} from "@/components/ui/Skeleton"
 import { CatalogProvider, Segmented, spring } from "@/components/ui/primitives"
 import { Hero } from "@/components/player/Hero"
 import { Overview } from "@/components/player/Overview"
@@ -10,7 +18,15 @@ import { MatchList } from "@/components/player/MatchList"
 import { MatchSheet } from "@/components/player/MatchSheet"
 import { Agents, Maps, Seasons, Weapons } from "@/components/player/Breakdown"
 import type { Catalog } from "@/interfaces/catalog"
-import type { Dashboard } from "@/interfaces/dashboard"
+import type {
+	AgentsView,
+	CombatView,
+	GroupsView,
+	OverviewView,
+	Shell,
+	SummaryView,
+	WeaponsView,
+} from "@/interfaces/views"
 import type { Game } from "@/interfaces/game"
 import type { Period } from "@/interfaces/stats"
 
@@ -49,7 +65,7 @@ const PERIODS: { value: Period; label: string }[] = [
 ]
 
 interface Props {
-	data: Dashboard
+	data: Shell
 	catalog: Catalog
 	initialTab?: string
 	initialMode?: string
@@ -94,28 +110,23 @@ export default function PlayerApp({
 	}
 
 	const queues = useMemo(() => {
-		const counts = new Map<string, number>()
-		for (const g of data.games)
-			counts.set(g.queue, (counts.get(g.queue) ?? 0) + 1)
-		const modeName = new Map(data.games.map((g) => [g.queue, g.mode]))
 		const order = Object.keys(QUEUE_LABELS)
-		const present = [...counts.keys()].sort(
+		const present = [...data.queues].sort(
 			(a, b) =>
-				(order.indexOf(a) + 1 || order.length + 1) -
-					(order.indexOf(b) + 1 || order.length + 1) ||
-				counts.get(b)! - counts.get(a)!,
+				(order.indexOf(a.queue) + 1 || order.length + 1) -
+					(order.indexOf(b.queue) + 1 || order.length + 1) || b.count - a.count,
 		)
-		return [...present, "all"].map((q) => ({
-			value: q,
-			label: QUEUE_LABELS[q] ?? modeName.get(q) ?? q,
-		}))
-	}, [data.games])
+		return [
+			...present.map((q) => ({
+				value: q.queue,
+				label: QUEUE_LABELS[q.queue] ?? q.mode ?? q.queue,
+			})),
+			{ value: "all", label: QUEUE_LABELS.all },
+		]
+	}, [data.queues])
 
-	const games = useMemo(
-		() => filterGames(data.games, queue, period),
-		[data.games, queue, period],
-	)
-	const summary = useMemo(() => summarize(games), [games])
+	const filters = useMemo(() => ({ mode: queue, period }), [queue, period])
+	const summary = useView<SummaryView>("summary", filters).data?.summary
 	const close = useCallback(() => setOpen(null), [])
 
 	return (
@@ -161,9 +172,15 @@ export default function PlayerApp({
 						/>
 					</div>
 					<span className="num ml-auto text-[12px] text-fg-3">
-						{games.length} partidas
-						{summary.detailed < games.length &&
-							` · ${summary.detailed} con detalle`}
+						{summary ? (
+							<>
+								{summary.games} partidas
+								{summary.detailed < summary.games &&
+									` · ${summary.detailed} con detalle`}
+							</>
+						) : (
+							<Block className="h-3 w-28" />
+						)}
 					</span>
 				</div>
 
@@ -176,24 +193,70 @@ export default function PlayerApp({
 						transition={{ ...spring, duration: 0.35 }}
 					>
 						{tab === "overview" && (
-							<Overview
-								games={games}
-								summary={summary}
-								rrHistory={data.rrHistory}
-								onOpen={setOpen}
-								onTab={setTab}
-							/>
+							<Loaded<OverviewView>
+								view="overview"
+								params={filters}
+								skeleton={<OverviewSkeleton />}
+								ready={!!summary}
+							>
+								{(v) => (
+									<Overview
+										summary={summary!}
+										view={v}
+										onOpen={setOpen}
+										onTab={setTab}
+									/>
+								)}
+							</Loaded>
 						)}
-						{tab === "combat" && <Combat games={games} summary={summary} />}
-						{tab === "matches" && <MatchList games={games} onOpen={setOpen} />}
-						{tab === "agents" && <Agents games={games} />}
-						{tab === "maps" && <Maps games={games} />}
-						{tab === "weapons" && <Weapons games={games} />}
+						{tab === "combat" && (
+							<Loaded<CombatView>
+								view="combat"
+								params={filters}
+								skeleton={<OverviewSkeleton />}
+								ready={!!summary}
+							>
+								{(v) => <Combat summary={summary!} view={v} />}
+							</Loaded>
+						)}
+						{tab === "matches" && (
+							<MatchList filters={filters} onOpen={setOpen} />
+						)}
+						{tab === "agents" && (
+							<Loaded<AgentsView>
+								view="agents"
+								params={filters}
+								skeleton={<TableSkeleton />}
+							>
+								{(v) => <Agents view={v} />}
+							</Loaded>
+						)}
+						{tab === "maps" && (
+							<Loaded<GroupsView>
+								view="maps"
+								params={filters}
+								skeleton={<GridSkeleton />}
+							>
+								{(v) => <Maps view={v} filters={filters} />}
+							</Loaded>
+						)}
+						{tab === "weapons" && (
+							<Loaded<WeaponsView>
+								view="weapons"
+								params={filters}
+								skeleton={<TwoColumnSkeleton />}
+							>
+								{(v) => <Weapons view={v} />}
+							</Loaded>
+						)}
 						{tab === "seasons" && (
-							<Seasons
-								profile={data.profile}
-								games={data.games.filter((g) => g.queue === "competitive")}
-							/>
+							<Loaded<GroupsView>
+								view="seasons"
+								params={{}}
+								skeleton={<GridSkeleton />}
+							>
+								{(v) => <Seasons profile={data.profile} view={v} />}
+							</Loaded>
 						)}
 					</motion.div>
 				</AnimatePresence>
@@ -202,4 +265,23 @@ export default function PlayerApp({
 			<MatchSheet game={open} puuid={data.profile.puuid} onClose={close} />
 		</CatalogProvider>
 	)
+}
+
+function Loaded<T>({
+	view,
+	params,
+	skeleton,
+	ready = true,
+	children,
+}: {
+	view: string
+	params: Record<string, string>
+	skeleton: ReactNode
+	ready?: boolean
+	children: (data: T) => ReactNode
+}) {
+	const { data, error } = useView<T>(view, params)
+	if (error) return <ErrorBox message={error} />
+	if (!data || !ready) return <>{skeleton}</>
+	return <>{children(data)}</>
 }

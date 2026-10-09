@@ -25,6 +25,7 @@ import { Ring } from "@/components/charts/charts"
 import { Tile } from "@/components/player/Overview"
 import type { Game } from "@/interfaces/game"
 import type { Summary } from "@/interfaces/stats"
+import type { CombatView } from "@/interfaces/views"
 
 const stagger = (i: number) => ({
 	initial: { opacity: 0, y: 14 },
@@ -41,15 +42,14 @@ const RATING_COLOR: Record<(typeof RATING_ORDER)[number], string> = {
 }
 
 export function Combat({
-	games,
 	summary: s,
+	view,
 }: {
-	games: Game[]
 	summary: Summary
+	view: CombatView
 }) {
 	const nameOfTier = useTierName()
-	const breakdown = useMemo(() => perfBreakdown(games), [games])
-	const parties = useMemo(() => byParty(games), [games])
+	const { breakdown, parties } = view
 
 	if (!s.detailed) {
 		return (

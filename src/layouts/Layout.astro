@@ -1,0 +1,39 @@
+---
+import { ClientRouter } from "astro:transitions"
+import "@/styles/global.css"
+
+interface Props {
+	title?: string
+	description?: string
+}
+const {
+	title = "Valorant Stats",
+	description = "Tus estadísticas de Valorant, claras y al detalle.",
+} = Astro.props
+---
+
+<!doctype html>
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		/>
+		<meta name="theme-color" content="#070708" />
+		<meta name="description" content={description} />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link rel="preconnect" href="https://media.valorant-api.com" crossorigin />
+		<link
+			rel="stylesheet"
+			href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&family=JetBrains+Mono:wght@400;500&display=swap"
+		/>
+		<title>{title}</title>
+		<ClientRouter />
+	</head>
+	<body class="grain">
+		<slot />
+	</body>
+</html>

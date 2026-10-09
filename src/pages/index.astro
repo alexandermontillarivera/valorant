@@ -1,0 +1,36 @@
+---
+import Layout from "@/layouts/Layout.astro"
+import PlayerApp from "@/components/player/PlayerApp"
+import ErrorState from "@/components/ErrorState.astro"
+import { PLAYER, loadDashboard } from "@/lib/dashboard"
+
+const url = Astro.url
+const result = await loadDashboard()
+if (!result.ok) Astro.response.status = result.status
+const param = (k: string) => url.searchParams.get(k) ?? undefined
+
+const titles: Record<number, string> = {
+	404: "Jugador no encontrado",
+	503: "Preparando tus estadísticas",
+}
+---
+
+<Layout title={`${PLAYER.name}#${PLAYER.tag}`}>
+	{result.ok ? (
+		<PlayerApp
+			client:load
+			data={result.data}
+			catalog={result.catalog}
+			initialTab={param("tab")}
+			initialMode={param("mode")}
+			initialPeriod={param("period")}
+		/>
+	) : (
+		<ErrorState
+			code={String(result.status)}
+			title={titles[result.status] ?? "No se pudieron cargar los datos"}
+			message={result.message}
+			retry
+		/>
+	)}
+</Layout>

@@ -1,0 +1,9 @@
+---
+import Layout from "@/layouts/Layout.astro"
+import ApiDocs from "@/components/docs/ApiDocs"
+import { spec } from "@/lib/openapi"
+---
+
+<Layout title="API — Documentación" description={spec.info.description}>
+	<ApiDocs client:load spec={spec} />
+</Layout>

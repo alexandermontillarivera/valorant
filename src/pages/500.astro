@@ -1,0 +1,25 @@
+---
+import Layout from "@/layouts/Layout.astro"
+import ErrorState from "@/components/ErrorState.astro"
+
+interface Props {
+	error: unknown
+}
+
+const { error } = Astro.props
+const detail = import.meta.env.DEV
+	? error instanceof Error
+		? (error.stack ?? error.message)
+		: String(error)
+	: undefined
+---
+
+<Layout title="Algo ha fallado">
+	<ErrorState
+		code="500"
+		title="Algo ha fallado"
+		message="Ha ocurrido un error inesperado en el servidor. Inténtalo de nuevo en unos segundos."
+		detail={detail}
+		retry
+	/>
+</Layout>

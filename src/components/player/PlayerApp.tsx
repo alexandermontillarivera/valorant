@@ -138,7 +138,7 @@ export default function PlayerApp({
 					id="tabs"
 					className="sticky top-[env(safe-area-inset-top,0px)] z-20 -mx-4 mt-6 mb-3 px-4 py-2.5 sm:-mx-6 sm:px-6"
 				>
-					<div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-bg via-bg/90 to-transparent" />
+					<div className="pointer-events-none absolute inset-0 bg-bg/85 backdrop-blur-xl" />
 					<div className="relative -mx-1 overflow-x-auto px-1 py-0.5 [scrollbar-width:none]">
 						<Segmented
 							value={tab}
@@ -174,7 +174,7 @@ export default function PlayerApp({
 					<span className="num ml-auto text-[12px] text-fg-3">
 						{summary ? (
 							<>
-								{summary.games} partidas
+								{summary.games} {summary.games === 1 ? "partida" : "partidas"}
 								{summary.detailed < summary.games &&
 									` · ${summary.detailed} con detalle`}
 							</>

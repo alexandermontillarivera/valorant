@@ -7,6 +7,7 @@ import {
 	weaponStats,
 } from "@/lib/stats"
 import { weaponInfo } from "@/lib/weapons"
+import { searchGames, searchPlayers } from "@/lib/search"
 import type { Catalog } from "@/interfaces/catalog"
 import type { Dashboard } from "@/interfaces/dashboard"
 import type { Game } from "@/interfaces/game"
@@ -17,7 +18,9 @@ const PERIODS: Period[] = ["all", "act", "50", "20"]
 
 /** Drops the heavy per-match arrays the list views never render. */
 export const lean = (g: Game): Game =>
-	g.d ? { ...g, d: { ...g.d, pts: [], weapons: {}, killedBy: {} } } : g
+	g.d
+		? { ...g, d: { ...g.d, pts: [], weapons: {}, killedBy: {}, players: [] } }
+		: g
 
 const slim = (groups: Group[]): Group[] =>
 	groups.map((g) => ({ ...g, best: {} }))
@@ -106,6 +109,26 @@ export function buildView(
 					),
 				),
 			}
+		case "search": {
+			const limit = Math.min(
+				100,
+				Math.max(1, Number(params.get("limit")) || 30),
+			)
+			const offset = Math.max(0, Number(params.get("offset")) || 0)
+			const { matched, summary } = searchGames(games, params)
+			const unique = (f: (g: Game) => string) =>
+				[...new Set(games.map(f))].sort((a, b) => a.localeCompare(b))
+			return {
+				games: matched.slice(offset, offset + limit).map(lean),
+				total: matched.length,
+				offset,
+				limit,
+				summary: leanSummary(summary),
+				facets: { agents: unique((g) => g.agent), maps: unique((g) => g.map) },
+			}
+		}
+		case "players":
+			return { players: searchPlayers(data.games, params.get("q") ?? "") }
 		case "matches": {
 			const limit = Math.min(
 				100,

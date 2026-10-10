@@ -81,7 +81,7 @@ export function deriveFromKills(
 const dist = (a: [number, number] | null, b: [number, number] | null) =>
 	a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) / 100 : null // cm -> m
 
-export const DETAIL_VERSION = 4
+export const DETAIL_VERSION = 5
 
 const buyOf = (avgLoadout: number, pistol: boolean): keyof Detail["buys"] =>
 	pistol
@@ -128,6 +128,15 @@ export function deriveDetail(m: Match, puuid: string): Detail | undefined {
 		allyTier: avgTier(m.players.filter((p) => p.team === me.team && p !== me)),
 		enemyTier: avgTier(m.players.filter((p) => p.team === enemy)),
 		party: m.players.filter((p) => p.partyId === me.partyId).length,
+		players: m.players
+			.filter((p) => p.puuid !== puuid)
+			.map((p) => ({
+				puuid: p.puuid,
+				name: p.name,
+				tag: p.tag,
+				agent: p.agent,
+				ally: p.team === me.team,
+			})),
 		weapons: {},
 		killedBy: {},
 		pts: [],

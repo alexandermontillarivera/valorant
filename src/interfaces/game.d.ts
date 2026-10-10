@@ -2,6 +2,14 @@ import type { Perf, TeamId } from "@/interfaces/player"
 
 export type Result = "W" | "L" | "D"
 
+export interface RosterPlayer {
+	puuid: string
+	name: string
+	tag: string
+	agent: string
+	ally: boolean
+}
+
 export interface Detail {
 	v?: number
 	perf: Perf | null
@@ -41,6 +49,7 @@ export interface Detail {
 		}
 	>
 	killedBy: Record<string, number>
+	players?: RosterPlayer[]
 	pts: [number, number, 0 | 1][] // your position: 0 = got a kill, 1 = died
 }
 

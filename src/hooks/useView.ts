@@ -3,13 +3,14 @@ import { useEffect, useState } from "react"
 const cache = new Map<string, unknown>()
 const inflight = new Map<string, Promise<unknown>>()
 
-export function viewUrl(
-	view: string,
-	params: Record<string, string | number | undefined>,
-) {
+export type ViewParams = Record<string, string | number | string[] | undefined>
+
+export function viewUrl(view: string, params: ViewParams) {
 	const qs = new URLSearchParams()
-	for (const [k, v] of Object.entries(params))
-		if (v !== undefined && v !== "") qs.set(k, String(v))
+	for (const [k, v] of Object.entries(params)) {
+		if (Array.isArray(v)) for (const item of v) qs.append(k, item)
+		else if (v !== undefined && v !== "") qs.set(k, String(v))
+	}
 	const q = qs.toString()
 	return `/api/view/${view}${q ? `?${q}` : ""}`
 }
@@ -32,11 +33,7 @@ export function fetchView<T>(url: string): Promise<T> {
 }
 
 /** Fetches a precomputed view; repeated or revisited requests are served from memory. */
-export function useView<T>(
-	view: string,
-	params: Record<string, string | number | undefined>,
-	enabled = true,
-) {
+export function useView<T>(view: string, params: ViewParams, enabled = true) {
 	const url = viewUrl(view, params)
 	const [state, setState] = useState<{
 		url: string

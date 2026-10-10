@@ -64,3 +64,49 @@ export interface MatchesView {
 	offset: number
 	limit: number
 }
+
+export type SearchMetric =
+	"kills" | "deaths" | "assists" | "kd" | "acs" | "adr" | "hs" | "perf" | "rr"
+
+export interface SearchCondition {
+	metric: SearchMetric
+	op: "gte" | "lte"
+	value: number
+}
+
+export interface SearchView {
+	games: Game[]
+	total: number
+	offset: number
+	limit: number
+	summary: Summary
+	facets: { agents: string[]; maps: string[] }
+}
+
+export interface PlayerHit {
+	puuid: string
+	name: string
+	tag: string
+	games: number
+	asAlly: number
+	asEnemy: number
+	winsTogether: number
+}
+
+export interface PlayersView {
+	players: PlayerHit[]
+}
+
+export interface SearchCriteria {
+	q: string
+	player: { puuid: string; name: string; tag: string } | null
+	side: "any" | "ally" | "enemy"
+	agent: string
+	map: string
+	result: "" | "W" | "L" | "D"
+	mvp: "" | "match" | "team"
+	from: string
+	to: string
+	sort: "date" | "kills" | "acs" | "kd" | "adr" | "perf"
+	conditions: SearchCondition[]
+}

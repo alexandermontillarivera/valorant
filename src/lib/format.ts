@@ -63,3 +63,10 @@ export const cardArt = (
 	kind: "wideart" | "smallart" | "largeart" = "wideart",
 ) =>
 	id ? `https://media.valorant-api.com/playercards/${id}/${kind}.png` : null
+
+export const shortDate = (iso: string) =>
+	new Date(iso).toLocaleDateString("es-ES", {
+		day: "numeric",
+		month: "short",
+		year: "numeric",
+	})

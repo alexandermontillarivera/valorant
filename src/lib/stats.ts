@@ -17,7 +17,7 @@ export function filterGames(
 ): Game[] {
 	let list = queue === "all" ? games : games.filter((g) => g.queue === queue)
 	if (period === "act") {
-		const act = list[0]?.season
+		const act = games.find((g) => g.season)?.season
 		list = list.filter((g) => g.season === act)
 	} else if (period !== "all") list = list.slice(0, Number(period))
 	return list

@@ -315,7 +315,7 @@ function Fighter({
 			<div className="min-w-0 max-w-full">
 				<label className="pressable relative inline-flex max-w-full cursor-pointer items-center gap-1 rounded-lg">
 					<span className="truncate text-[17px] font-semibold tracking-[-0.02em] sm:text-[26px]">
-						{p?.name ?? fallback?.name}
+						<bdi>{p?.name ?? fallback?.name}</bdi>
 						<span className="hidden font-normal text-fg-3 sm:inline">
 							#{p?.tag ?? fallback?.tag}
 						</span>

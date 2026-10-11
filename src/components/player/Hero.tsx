@@ -76,7 +76,7 @@ export function Hero({
 							</a>
 						</div>
 						<h1 className="display text-[30px] font-semibold [overflow-wrap:anywhere] sm:truncate sm:text-[48px]">
-							{profile.name}
+							<bdi>{profile.name}</bdi>
 							<span className="font-normal text-fg-3">#{profile.tag}</span>
 						</h1>
 					</div>

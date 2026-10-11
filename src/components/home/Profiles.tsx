@@ -107,7 +107,7 @@ function Card({ card }: { card: ProfileCard }) {
 					</div>
 					<div className="min-w-0 flex-1">
 						<div className="truncate text-[19px] font-semibold tracking-[-0.02em]">
-							{p?.name ?? card.name}
+							<bdi>{p?.name ?? card.name}</bdi>
 							<span className="font-normal text-fg-3">
 								#{p?.tag ?? card.tag}
 							</span>

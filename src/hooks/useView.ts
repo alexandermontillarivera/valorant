@@ -36,7 +36,7 @@ export function fetchView<T>(url: string): Promise<T> {
 /** Fetches a precomputed view of the current player; repeated or revisited requests are served from memory. */
 export function useView<T>(view: string, params: ViewParams, enabled = true) {
 	const player = usePlayerSlug()
-	return useJson<T>(viewUrl(view, { player, ...params }), enabled)
+	return useJson<T>(viewUrl(view, { ...params, player }), enabled)
 }
 
 export function useJson<T>(url: string, enabled = true) {

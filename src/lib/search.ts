@@ -51,7 +51,7 @@ const norm = (s: string) =>
 
 export function searchGames(games: Game[], params: URLSearchParams) {
 	const conditions = parseConditions(params.getAll("c"))
-	const player = params.get("player")
+	const player = params.get("with")
 	const side = params.get("side") ?? "any"
 	const agent = params.get("agent")
 	const map = params.get("map")

@@ -29,6 +29,7 @@ import {
 	isEmpty,
 } from "@/components/player/SearchFilters"
 import { fetchView, useView, viewUrl, type ViewParams } from "@/hooks/useView"
+import { usePlayerSlug } from "@/hooks/usePlayer"
 import type { Game } from "@/interfaces/game"
 import type { SearchCriteria, SearchView } from "@/interfaces/views"
 
@@ -37,7 +38,7 @@ const PAGE = 30
 function toParams(c: SearchCriteria): ViewParams {
 	return {
 		q: c.q.trim() || undefined,
-		player: c.player?.puuid,
+		with: c.player?.puuid,
 		side: c.player && c.side !== "any" ? c.side : undefined,
 		agent: c.agent || undefined,
 		map: c.map || undefined,
@@ -57,6 +58,7 @@ export function MatchList({
 	filters: Record<string, string>
 	onOpen: (g: Game) => void
 }) {
+	const slug = usePlayerSlug()
 	const [criteria, setCriteria] = useState<SearchCriteria>(EMPTY_CRITERIA)
 	const [showFilters, setShowFilters] = useState(false)
 	const params = useMemo(
@@ -88,7 +90,12 @@ export function MatchList({
 		setLoadingMore(true)
 		try {
 			const page = await fetchView<SearchView>(
-				viewUrl("search", { ...params, limit: PAGE, offset: games.length }),
+				viewUrl("search", {
+					...params,
+					limit: PAGE,
+					offset: games.length,
+					player: slug,
+				}),
 			)
 			setMore((m) => [...m, ...page.games])
 		} finally {

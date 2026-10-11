@@ -39,6 +39,7 @@ import {
 import type { Game } from "@/interfaces/game"
 import type { KillEvent, Match, PlayerLine } from "@/interfaces/match"
 import type { TeamId } from "@/interfaces/player"
+import { usePlayerSlug } from "@/hooks/usePlayer"
 import type { Line } from "@/interfaces/stats"
 
 const ALLY = "var(--color-info)"
@@ -59,13 +60,16 @@ export function MatchSheet({
 	const reduce = useReducedMotion()
 	const [match, setMatch] = useState<Match | null>(null)
 	const [error, setError] = useState<string | null>(null)
+	const player = usePlayerSlug()
 
 	useEffect(() => {
 		if (!game) return
 		let alive = true
 		setMatch(null)
 		setError(null)
-		fetch(`/api/match/${encodeURIComponent(game.id)}`)
+		fetch(
+			`/api/match/${encodeURIComponent(game.id)}${player ? `?player=${player}` : ""}`,
+		)
 			.then(async (res) => {
 				const json = await res.json()
 				if (!alive) return
@@ -76,7 +80,7 @@ export function MatchSheet({
 		return () => {
 			alive = false
 		}
-	}, [game])
+	}, [game, player])
 
 	useEffect(() => {
 		if (!game) return

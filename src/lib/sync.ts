@@ -1,4 +1,3 @@
-import { getCatalog } from "@/lib/catalog"
 import { DETAIL_VERSION, deriveDetail } from "@/lib/derive"
 import {
 	ApiError,
@@ -14,10 +13,10 @@ import {
 } from "@/lib/api"
 import { canSpend, isLimited } from "@/lib/ratelimit"
 import { getStorage } from "@/lib/storage"
-import type { Catalog } from "@/interfaces/catalog"
 import type { Game } from "@/interfaces/game"
 import type { Match } from "@/interfaces/match"
 import type { RRPoint } from "@/interfaces/player"
+import type { TrackedPlayer } from "@/interfaces/players"
 
 const MIN = 60_000
 const TICK_MS = 2500
@@ -34,8 +33,8 @@ interface SyncMeta {
 	lastSyncAt: string | null
 }
 
-interface Archive {
-	player: { name: string; tag: string }
+export interface Archive {
+	player: TrackedPlayer
 	account: { data: any; at: number } | null
 	mmr: { data: any; at: number } | null
 	games: Map<string, Game>
@@ -43,77 +42,89 @@ interface Archive {
 	meta: SyncMeta
 	headAt: number
 	rrHeadAt: number
-	working: boolean
 	error: string | null
 	backoff: Map<string, { until: number; fails: number }>
 }
 
 const g = globalThis as typeof globalThis & {
-	__vsArchive?: Promise<Archive>
+	__vsArchives?: Map<string, Promise<Archive>>
+	__vsReady?: Archive[]
 	__vsTimer?: ReturnType<typeof setInterval>
+	__vsWorking?: boolean
+	__vsTurn?: number
+}
+const archives = (g.__vsArchives ??= new Map())
+const ready = (g.__vsReady ??= [])
+
+const metaKey = (kind: "account" | "mmr" | "sync", a: Archive) =>
+	`${kind}:${a.player.slug}`
+
+export function getArchive(player: TrackedPlayer): Promise<Archive> {
+	let archive = archives.get(player.slug)
+	if (!archive) {
+		archive = load(player)
+		archives.set(player.slug, archive)
+	}
+	return archive
 }
 
-export function getArchive(player: {
-	name: string
-	tag: string
-}): Promise<Archive> {
-	g.__vsArchive ??= (async () => {
-		const storage = await getStorage()
-		const a: Archive = {
-			player,
-			account: null,
-			mmr: null,
-			games: new Map(),
-			rr: new Map(),
-			meta: {
-				storedTotal: 0,
-				storedNextPage: 1,
-				rrTotal: 0,
-				rrNextPage: 1,
-				failed: {},
-				lastSyncAt: null,
-			},
-			headAt: 0,
-			rrHeadAt: 0,
-			working: false,
-			error: null,
-			backoff: new Map(),
-		}
-		const account = (await storage.loadAll("__meta__")).meta
-		a.account = (account["account"] as Archive["account"]) ?? null
-		a.mmr = (account["mmr"] as Archive["mmr"]) ?? null
-		a.meta = { ...a.meta, ...((account["sync"] as SyncMeta) ?? {}) }
-		if (
-			a.account &&
-			`${a.account.data.name}#${a.account.data.tag}`.toLowerCase() !==
-				`${player.name}#${player.tag}`.toLowerCase()
-		) {
-			a.account = null
-			a.mmr = null
-		}
-		if (a.account) {
-			const { games, rr } = await storage.loadAll(a.account.data.puuid)
-			for (const x of games) a.games.set(x.id, x)
-			for (const x of rr) a.rr.set(x.matchId, x)
-		}
-		startTimer(a)
-		return a
-	})()
-	return g.__vsArchive
+async function load(player: TrackedPlayer): Promise<Archive> {
+	const storage = await getStorage()
+	const a: Archive = {
+		player,
+		account: null,
+		mmr: null,
+		games: new Map(),
+		rr: new Map(),
+		meta: {
+			storedTotal: 0,
+			storedNextPage: 1,
+			rrTotal: 0,
+			rrNextPage: 1,
+			failed: {},
+			lastSyncAt: null,
+		},
+		headAt: 0,
+		rrHeadAt: 0,
+		error: null,
+		backoff: new Map(),
+	}
+	const meta = await storage.loadMeta()
+	const legacy = meta["account"] as Archive["account"] | undefined
+	// Before multi-player support meta keys weren't namespaced; adopt them if they belong to this player.
+	const ownsLegacy =
+		!!legacy &&
+		`${legacy.data.name}#${legacy.data.tag}`.toLowerCase() ===
+			`${player.name}#${player.tag}`.toLowerCase()
+	a.account =
+		(meta[metaKey("account", a)] as Archive["account"]) ??
+		(ownsLegacy ? legacy! : null)
+	a.mmr =
+		(meta[metaKey("mmr", a)] as Archive["mmr"]) ??
+		(ownsLegacy ? (meta["mmr"] as Archive["mmr"]) : null) ??
+		null
+	a.meta = {
+		...a.meta,
+		...((meta[metaKey("sync", a)] ??
+			(ownsLegacy ? meta["sync"] : undefined)) as SyncMeta | undefined),
+	}
+	if (a.account) {
+		const { games, rr } = await storage.loadAll(a.account.data.puuid)
+		for (const x of games) a.games.set(x.id, x)
+		for (const x of rr) a.rr.set(x.matchId, x)
+	}
+	ready.push(a)
+	startTimer()
+	return a
 }
 
-// Dev HMR: an archive created by a previous version of this module keeps its data but gets this
+// Dev HMR: archives created by a previous version of this module keep their data but get this
 // version's sync loop.
-if (g.__vsArchive)
-	void g.__vsArchive.then((a) => {
-		a.backoff ??= new Map()
-		startTimer(a)
-	})
+if (ready.length) startTimer()
 
-function startTimer(a: Archive) {
-	clearInterval(g.__vsTimer) // HMR: replace the old module's loop
-	g.__vsTimer = setInterval(() => void tick(a), TICK_MS)
-	void tick(a)
+function startTimer() {
+	clearInterval(g.__vsTimer)
+	g.__vsTimer = setInterval(() => void tickAll(), TICK_MS)
 }
 
 export async function warmUp(
@@ -123,19 +134,45 @@ export async function warmUp(
 ) {
 	const until = Date.now() + timeoutMs
 	while (!done() && Date.now() < until && !a.error) {
-		await tick(a)
+		const task = nextTask(a, false)
+		if (task && affordable(task)) await runTask(a, task)
 		await new Promise((r) => setTimeout(r, 300))
 	}
 }
 
-type Task = { key: string; cost: number; run: () => Promise<void> }
+type Task = {
+	key: string
+	cost: number
+	urgent: boolean
+	run: () => Promise<void>
+}
 
-function nextTask(a: Archive): Task | null {
+const affordable = (t: Task) =>
+	t.cost === 0 || (!isLimited() && canSpend(t.cost, RESERVE))
+
+function nextTask(a: Archive, urgentOnly: boolean): Task | null {
 	for (const task of candidates(a)) {
+		if (urgentOnly && !task.urgent) continue
 		const b = a.backoff.get(task.key)
 		if (!b || Date.now() >= b.until) return task
 	}
 	return null
+}
+
+/** One request at a time across all players: fresh data for everyone first, then history by turns. */
+async function tickAll() {
+	if (g.__vsWorking || !apiKey() || !ready.length) return
+	for (const urgentOnly of [true, false]) {
+		for (let i = 0; i < ready.length; i++) {
+			const idx = ((g.__vsTurn ?? 0) + i) % ready.length
+			const a = ready[idx]
+			const task = nextTask(a, urgentOnly)
+			if (!task || !affordable(task)) continue
+			g.__vsTurn = idx + 1
+			await runTask(a, task)
+			return
+		}
+	}
 }
 
 function* candidates(a: Archive): Generator<Task> {
@@ -147,12 +184,18 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: "account",
 			cost: 1,
+			urgent: true,
 			run: async () => {
 				const { data } = await request(
 					`/valorant/v2/account/${enc(name)}/${enc(tag)}`,
 				)
 				a.account = { data, at: Date.now() }
-				await (await getStorage()).setMeta("account", a.account)
+				await (await getStorage()).setMeta(metaKey("account", a), a.account)
+				if (!a.games.size) {
+					const { games, rr } = await (await getStorage()).loadAll(data.puuid)
+					for (const x of games) a.games.set(x.id, x)
+					for (const x of rr) a.rr.set(x.matchId, x)
+				}
 			},
 		}
 		return
@@ -164,12 +207,13 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: "mmr",
 			cost: 1,
+			urgent: true,
 			run: async () => {
 				const { data } = await request(
 					`/valorant/v3/mmr/${region}/${PLATFORM}/${id}`,
 				)
 				a.mmr = { data, at: Date.now() }
-				await (await getStorage()).setMeta("mmr", a.mmr)
+				await (await getStorage()).setMeta(metaKey("mmr", a), a.mmr)
 			},
 		}
 	}
@@ -178,6 +222,7 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: "stored-head",
 			cost: 1,
+			urgent: true,
 			run: () => storedPage(a, region, id, 1, 25, true),
 		}
 	}
@@ -185,6 +230,7 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: "rr-head",
 			cost: 1,
+			urgent: true,
 			run: () => rrPage(a, region, id, 1, 25, true),
 		}
 	}
@@ -193,6 +239,7 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: `stored-${page}`,
 			cost: 1,
+			urgent: false,
 			run: () => storedPage(a, region, id, page, PAGE, false),
 		}
 	}
@@ -201,6 +248,7 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: `rr-${page}`,
 			cost: 1,
+			urgent: false,
 			run: () => rrPage(a, region, id, page, PAGE, false),
 		}
 	}
@@ -214,6 +262,7 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: `detail-${p.id}`,
 			cost: 2,
+			urgent: false,
 			run: () => fetchDetail(a, p.id, region).then(() => {}),
 		}
 
@@ -224,16 +273,13 @@ function* candidates(a: Archive): Generator<Task> {
 		yield {
 			key: `rederive-${outdated[0].id}`,
 			cost: 0,
+			urgent: false,
 			run: () => rederive(a, outdated),
 		}
 }
 
-async function tick(a: Archive) {
-	if (a.working || !apiKey()) return
-	const task = nextTask(a)
-	if (!task) return
-	if (task.cost > 0 && (isLimited() || !canSpend(task.cost, RESERVE))) return
-	a.working = true
+async function runTask(a: Archive, task: Task) {
+	g.__vsWorking = true
 	try {
 		await task.run()
 		a.backoff.delete(task.key)
@@ -256,10 +302,15 @@ async function tick(a: Archive) {
 		)
 			a.error = "La API key no es válida."
 		if (!(err instanceof ApiError && err.status === 429))
-			console.warn(`[sync] ${task.key}:`, (err as Error).message)
+			console.warn(
+				`[sync] ${a.player.slug} ${task.key}:`,
+				(err as Error).message,
+			)
 	} finally {
-		a.working = false
-		void (await getStorage()).setMeta("sync", a.meta).catch(() => {})
+		g.__vsWorking = false
+		void (await getStorage())
+			.setMeta(metaKey("sync", a), a.meta)
+			.catch(() => {})
 	}
 }
 
@@ -338,6 +389,12 @@ async function fetchDetail(
 	region: string,
 ): Promise<Match | null> {
 	const storage = await getStorage()
+	// Another tracked player may have been in this match already.
+	const shared = await storage.getMatch(matchId)
+	if (shared) {
+		attachDetail(a, shared)
+		return shared
+	}
 	try {
 		const { data } = await request(
 			`/valorant/v4/match/${region}/${enc(matchId)}`,

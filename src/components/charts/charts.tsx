@@ -429,3 +429,194 @@ export function Ring({
 		</div>
 	)
 }
+
+/** Several series on a shared time axis, e.g. two players' Elo. */
+export function TimeChart({
+	series,
+	height = 260,
+	bands = [],
+	format = (v) => String(Math.round(v)),
+	formatT = (t) => new Date(t).toLocaleDateString("es-ES"),
+}: {
+	series: { label: string; color: string; points: { t: number; y: number }[] }[]
+	height?: number
+	bands?: { y: number; label: string }[]
+	format?: (v: number) => string
+	formatT?: (t: number) => string
+}) {
+	const [ref, width] = useWidth<HTMLDivElement>()
+	const [hoverX, setHoverX] = useState<number | null>(null)
+	const pad = { top: 16, right: 12, bottom: 12, left: 12 }
+
+	const geo = useMemo(() => {
+		// Start where every series has data so the lines are actually comparable.
+		const starts = series
+			.filter((s) => s.points.length)
+			.map((s) => s.points[0].t)
+		const from = starts.length ? Math.max(...starts) : 0
+		const visible = series.map((s) => {
+			const i = s.points.findIndex((p) => p.t >= from)
+			return i < 0
+				? []
+				: s.points
+						.slice(Math.max(0, i - 1))
+						.map((p) => ({ ...p, t: Math.max(from, p.t) }))
+		})
+		const all = visible.flat()
+		if (!all.length) return null
+		// One step per match across all series, so months without games don't stretch the axis.
+		const ticks = [...new Set(all.map((p) => p.t))].sort((x, y) => x - y)
+		const index = new Map(ticks.map((tick, i) => [tick, i]))
+		let min = Math.min(...all.map((p) => p.y))
+		let max = Math.max(...all.map((p) => p.y))
+		const span = Math.max(40, max - min)
+		min -= span * 0.12
+		max += span * 0.12
+		const w = Math.max(1, width - pad.left - pad.right)
+		const h = height - pad.top - pad.bottom
+		const step = ticks.length > 1 ? w / (ticks.length - 1) : 0
+		const xOf = (t: number) =>
+			pad.left + (ticks.length > 1 ? (index.get(t) ?? 0) * step : w / 2)
+		const yOf = (v: number) => pad.top + h - ((v - min) / (max - min)) * h
+		return {
+			xOf,
+			yOf,
+			tOf: (x: number) =>
+				ticks[
+					Math.max(
+						0,
+						Math.min(
+							ticks.length - 1,
+							Math.round((x - pad.left) / (step || 1)),
+						),
+					)
+				],
+			lines: series.map((s, i) => ({
+				...s,
+				points: visible[i],
+				coords: visible[i].map((p): [number, number] => [xOf(p.t), yOf(p.y)]),
+			})),
+			bands: bands.filter((b) => b.y > min && b.y < max),
+		}
+	}, [series, width, height, bands])
+
+	const hover =
+		geo && hoverX !== null
+			? geo.lines.map((l) => {
+					let best = -1
+					for (let i = 0; i < l.coords.length; i++)
+						if (
+							l.coords[i][0] <= hoverX + 1 &&
+							(best < 0 || l.coords[i][0] > l.coords[best][0])
+						)
+							best = i
+					return best < 0 ? null : { ...l.points[best], c: l.coords[best] }
+				})
+			: null
+
+	return (
+		<div
+			ref={ref}
+			className="relative touch-pan-y select-none"
+			style={{ height }}
+			onPointerMove={(e) =>
+				setHoverX(e.clientX - e.currentTarget.getBoundingClientRect().left)
+			}
+			onPointerLeave={() => setHoverX(null)}
+		>
+			{geo && width > 0 && (
+				<svg
+					width={width}
+					height={height}
+					className="absolute inset-0 overflow-visible"
+				>
+					{geo.bands.map((b) => (
+						<g key={b.y}>
+							<line
+								x1={0}
+								x2={width}
+								y1={geo.yOf(b.y)}
+								y2={geo.yOf(b.y)}
+								stroke="rgba(255,255,255,0.07)"
+								strokeDasharray="2 4"
+							/>
+							<text
+								x={4}
+								y={geo.yOf(b.y) - 6}
+								className="fill-fg-4 text-[10px] font-medium"
+							>
+								{b.label}
+							</text>
+						</g>
+					))}
+					{geo.lines.map((l) => (
+						<motion.path
+							key={l.label}
+							d={l.coords
+								.map((c, i) => `${i ? "L" : "M"}${c[0]},${c[1]}`)
+								.join("")}
+							fill="none"
+							stroke={l.color}
+							strokeWidth={2}
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							initial={{ pathLength: 0 }}
+							animate={{ pathLength: 1 }}
+							transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
+						/>
+					))}
+					{hoverX !== null && (
+						<line
+							x1={hoverX}
+							x2={hoverX}
+							y1={0}
+							y2={height}
+							stroke="rgba(255,255,255,0.14)"
+						/>
+					)}
+					{(hover ?? geo.lines.map((l) => ({ c: l.coords.at(-1) })))?.map(
+						(h, i) =>
+							h?.c && (
+								<circle
+									key={i}
+									cx={h.c[0]}
+									cy={h.c[1]}
+									r={4}
+									fill={geo.lines[i].color}
+									stroke="var(--color-bg)"
+									strokeWidth={2}
+								/>
+							),
+					)}
+				</svg>
+			)}
+			<AnimatePresence>
+				{geo && hover && hoverX !== null && (
+					<Tooltip key="tt" x={hoverX} width={width}>
+						<div className="mb-1 text-fg-3">{formatT(geo.tOf(hoverX))}</div>
+						{hover.map(
+							(h, i) =>
+								h && (
+									<div key={i} className="flex items-center gap-2">
+										<span
+											className="h-2 w-2 rounded-full"
+											style={{ background: geo.lines[i].color }}
+										/>
+										<span className="text-fg-2">{geo.lines[i].label}</span>
+										<span className="num ml-auto pl-3 font-medium text-fg">
+											{format(h.y)}
+										</span>
+									</div>
+								),
+						)}
+					</Tooltip>
+				)}
+			</AnimatePresence>
+			{!geo && (
+				<div className="grid h-full place-items-center text-fg-3">
+					Sin datos todavía
+				</div>
+			)}
+		</div>
+	)
+}

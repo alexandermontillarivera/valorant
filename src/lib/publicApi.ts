@@ -2,11 +2,13 @@ import { getCatalog } from "@/lib/catalog"
 import { NO_ROUNDS, normalizeProfile } from "@/lib/api"
 import { filterGames, groupBy } from "@/lib/stats"
 import { getStorage } from "@/lib/storage"
+import { getPlayer } from "@/lib/players"
 import type { Catalog } from "@/interfaces/catalog"
 import type { SyncStatus } from "@/interfaces/dashboard"
 import type { Game } from "@/interfaces/game"
 import type { Profile, RRPoint } from "@/interfaces/player"
 import type { Group, Period, Summary } from "@/interfaces/stats"
+import type { TrackedPlayer } from "@/interfaces/players"
 
 const CORS = {
 	"Access-Control-Allow-Origin": "*",
@@ -44,27 +46,38 @@ interface Snapshot {
 }
 
 const CACHE_MS = 30_000
-let cached: { at: number; data: Snapshot } | null = null
-let refreshing: Promise<Snapshot | null> | null = null
+const cached = new Map<string, { at: number; data: Snapshot }>()
+const refreshing = new Map<string, Promise<Snapshot | null>>()
 
 /** Reads from the database; a stale copy is served instantly while it refreshes in the background. */
-async function snapshot(): Promise<Snapshot | null> {
-	if (cached && Date.now() - cached.at < CACHE_MS) return cached.data
-	refreshing ??= readSnapshot()
-		.catch(() => null)
-		.finally(() => {
-			refreshing = null
-		})
-	return cached ? cached.data : refreshing
+async function snapshot(player: TrackedPlayer): Promise<Snapshot | null> {
+	const hit = cached.get(player.slug)
+	if (hit && Date.now() - hit.at < CACHE_MS) return hit.data
+	let req = refreshing.get(player.slug)
+	if (!req) {
+		req = readSnapshot(player)
+			.catch(() => null)
+			.finally(() => refreshing.delete(player.slug))
+		refreshing.set(player.slug, req)
+	}
+	return hit ? hit.data : req
 }
 
-async function readSnapshot(): Promise<Snapshot | null> {
+async function readSnapshot(player: TrackedPlayer): Promise<Snapshot | null> {
 	const storage = await getStorage()
-	const { meta } = await storage.loadAll("")
-	const account = (meta["account"] as { data: any } | undefined)?.data
+	const meta = await storage.loadMeta()
+	const legacy = (meta["account"] as { data: any } | undefined)?.data
+	const ownsLegacy =
+		!!legacy &&
+		`${legacy.name}#${legacy.tag}`.toLowerCase() ===
+			`${player.name}#${player.tag}`.toLowerCase()
+	const read = (kind: string) =>
+		(meta[`${kind}:${player.slug}`] ??
+			(ownsLegacy ? meta[kind] : undefined)) as Record<string, any> | undefined
+	const account = read("account")?.data
 	if (!account?.puuid) return null
-	const mmr = (meta["mmr"] as { data: any } | undefined)?.data
-	const sync = (meta["sync"] as Record<string, any> | undefined) ?? {}
+	const mmr = read("mmr")?.data
+	const sync = read("sync") ?? {}
 	const { games, rr } = await storage.loadAll(account.puuid)
 	const catalog = await getCatalog()
 
@@ -99,7 +112,7 @@ async function readSnapshot(): Promise<Snapshot | null> {
 			lastSyncAt: sync.lastSyncAt ?? null,
 		},
 	}
-	cached = { at: Date.now(), data }
+	cached.set(player.slug, { at: Date.now(), data })
 	return data
 }
 
@@ -119,7 +132,16 @@ export function intParam(
 
 /** Loads the snapshot and applies the shared mode/period filters. */
 export async function context(url: URL) {
-	const snap = await snapshot().catch(() => null)
+	const player = getPlayer(url.searchParams.get("player") ?? undefined)
+	if (!player)
+		return {
+			ok: false as const,
+			response: apiError(
+				404,
+				"Jugador no encontrado. Consulta /api/v1/players.",
+			),
+		}
+	const snap = await snapshot(player).catch(() => null)
 	if (!snap)
 		return {
 			ok: false as const,
@@ -141,7 +163,7 @@ export async function context(url: URL) {
 		data: snap,
 		catalog: snap.catalog,
 		games: filterGames(snap.games, mode, period),
-		filters: { mode, period },
+		filters: { player: player.slug, mode, period },
 	}
 }
 

@@ -1,0 +1,38 @@
+---
+import Layout from "@/layouts/Layout.astro"
+import VersusApp from "@/components/versus/VersusApp"
+import ErrorState from "@/components/ErrorState.astro"
+import { PLAYERS, getPlayer } from "@/lib/players"
+import { getCatalog } from "@/lib/catalog"
+
+const q = Astro.url.searchParams
+const a = getPlayer(q.get("a") ?? undefined) ?? PLAYERS[0]
+const b =
+	getPlayer(q.get("b") ?? undefined) ?? PLAYERS.find((p) => p.slug !== a?.slug)
+const catalog = await getCatalog()
+if (PLAYERS.length < 2) Astro.response.status = 404
+---
+
+<Layout title="Versus">
+	{PLAYERS.length >= 2 && a && b ? (
+		<VersusApp
+			client:load
+			players={PLAYERS}
+			catalog={catalog}
+			initialA={a.slug}
+			initialB={
+				b.slug === a.slug
+					? PLAYERS.find((p) => p.slug !== a.slug)!.slug
+					: b.slug
+			}
+			initialMode={q.get("mode") ?? undefined}
+			initialPeriod={q.get("period") ?? undefined}
+		/>
+	) : (
+		<ErrorState
+			code="404"
+			title="Necesitas dos perfiles"
+			message="Añade al menos dos Riot IDs en PLAYER_RIOT_IDS para compararlos."
+		/>
+	)}
+</Layout>

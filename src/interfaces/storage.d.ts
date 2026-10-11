@@ -12,5 +12,6 @@ export interface Storage {
 	saveRR(puuid: string, points: RRPoint[]): Promise<void>
 	saveMatch(match: Match): Promise<void>
 	getMatch(id: string): Promise<Match | null>
+	loadMeta(): Promise<Record<string, unknown>>
 	setMeta(key: string, value: unknown): Promise<void>
 }

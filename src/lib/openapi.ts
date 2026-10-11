@@ -3,6 +3,7 @@ import type {
 	JsonSchema,
 	OpenApiSpec,
 } from "@/interfaces/openapi"
+import { PLAYERS } from "@/lib/players"
 
 const ref = (name: string): JsonSchema => ({
 	$ref: `#/components/schemas/${name}`,
@@ -39,6 +40,17 @@ const list = (description: string, items: JsonSchema): JsonSchema => ({
 const envelope = (data: JsonSchema, meta?: JsonSchema): JsonSchema =>
 	obj("Respuesta", meta ? { data, meta } : { data })
 
+const PLAYER: ApiParameter = {
+	name: "player",
+	in: "query",
+	description:
+		"Slug del jugador (de `/players`). Si se omite se usa el primero configurado.",
+	schema: {
+		type: "string",
+		default: PLAYERS[0]?.slug,
+		enum: PLAYERS.map((p) => p.slug),
+	},
+}
 const MODE: ApiParameter = {
 	name: "mode",
 	in: "query",
@@ -65,8 +77,9 @@ const PERIOD: ApiParameter = {
 		"Periodo: todo el historial, el acto más reciente o las últimas N partidas.",
 	schema: { type: "string", default: "all", enum: ["all", "act", "50", "20"] },
 }
-const FILTERS = [MODE, PERIOD]
+const FILTERS = [PLAYER, MODE, PERIOD]
 const filtersMeta = obj("Filtros aplicados", {
+	player: str("Slug del jugador"),
 	mode: str("Modo de juego aplicado"),
 	period: str("Periodo aplicado"),
 })
@@ -421,7 +434,7 @@ export const spec: OpenApiSpec = {
 		title: "Valorant Stats API",
 		version: "1.0.0",
 		description:
-			"API pública de solo lectura con las estadísticas de la cuenta. Sin autenticación y con CORS abierto. Los datos salen de la base de datos y se actualizan cada pocos minutos.",
+			"API pública de solo lectura con las estadísticas de las cuentas seguidas. Sin autenticación y con CORS abierto. Los datos salen de la base de datos y se actualizan cada pocos minutos.",
 	},
 	servers: [{ url: "/api/v1" }],
 	tags: [
@@ -434,6 +447,28 @@ export const spec: OpenApiSpec = {
 		{ name: "Sistema", description: "Estado y especificación" },
 	],
 	paths: {
+		"/players": {
+			get: {
+				operationId: "listPlayers",
+				summary: "Jugadores",
+				description:
+					"Cuentas seguidas. Usa su `slug` en el parámetro `player` del resto de endpoints.",
+				tags: ["Jugador"],
+				responses: ok(
+					"Jugadores",
+					envelope(
+						list(
+							"Jugadores",
+							obj("Jugador", {
+								slug: str("Identificador para `player`"),
+								name: str("Nombre de Riot"),
+								tag: str("Tag de Riot"),
+							}),
+						),
+					),
+				),
+			},
+		},
 		"/profile": {
 			get: {
 				operationId: "getProfile",
@@ -441,6 +476,7 @@ export const spec: OpenApiSpec = {
 				description:
 					"Riot ID, nivel, rango actual, rango máximo y resultados de cada acto.",
 				tags: ["Jugador"],
+				parameters: [PLAYER],
 				responses: ok("Perfil", envelope(ref("Profile"))),
 			},
 		},
@@ -452,6 +488,7 @@ export const spec: OpenApiSpec = {
 					"Cambios de RR tras cada partida competitiva, del más antiguo al más reciente.",
 				tags: ["Jugador"],
 				parameters: [
+					PLAYER,
 					{
 						name: "limit",
 						in: "query",
@@ -520,6 +557,7 @@ export const spec: OpenApiSpec = {
 					envelope(
 						list("Partidas", ref("Game")),
 						obj("Paginación y filtros", {
+							player: str("Slug del jugador"),
 							mode: str("Modo"),
 							period: str("Periodo"),
 							total: int("Total con estos filtros"),
@@ -615,6 +653,7 @@ export const spec: OpenApiSpec = {
 				summary: "Estado de sincronización",
 				description: "Cuánto historial hay guardado y si sigue descargándose.",
 				tags: ["Sistema"],
+				parameters: [PLAYER],
 				responses: ok("Estado", envelope(ref("SyncStatus"))),
 			},
 		},

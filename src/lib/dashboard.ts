@@ -5,19 +5,13 @@ import type { LoadResult } from "@/interfaces/dashboard"
 import type { Match } from "@/interfaces/match"
 import { isLimited } from "@/lib/ratelimit"
 import { getCatalog } from "@/lib/catalog"
+import { PLAYERS } from "@/lib/players"
+import type { TrackedPlayer } from "@/interfaces/players"
 
-export const PLAYER = (() => {
-	const raw = process.env.PLAYER_RIOT_ID || import.meta.env.PLAYER_RIOT_ID
-	// In .env an unquoted "#" starts a comment, so "Name/Tag" is accepted too.
-	const [name, tag] = raw.split(/[#/]/)
-	if (!tag)
-		console.error(
-			`[config] PLAYER_RIOT_ID="${raw}" no tiene tag. Usa PLAYER_RIOT_ID="Nombre#TAG" (entre comillas).`,
-		)
-	return { name: name.trim(), tag: (tag ?? "").trim() }
-})()
-
-export async function loadDashboard(): Promise<LoadResult> {
+export async function loadDashboard(
+	player: TrackedPlayer,
+	wait = true,
+): Promise<LoadResult> {
 	const catalog = await getCatalog()
 	if (!apiKey())
 		return {
@@ -27,8 +21,8 @@ export async function loadDashboard(): Promise<LoadResult> {
 			catalog,
 		}
 
-	const a = await getArchive(PLAYER)
-	if (!a.account || !a.mmr || !a.games.size)
+	const a = await getArchive(player)
+	if (wait && (!a.account || !a.mmr || !a.games.size))
 		await warmUp(a, () => !!a.account && !!a.mmr && a.games.size > 0)
 	if (!a.account) {
 		return {
@@ -78,9 +72,12 @@ export async function loadDashboard(): Promise<LoadResult> {
 	}
 }
 
-export async function loadMatch(id: string): Promise<Match | null> {
-	if (!apiKey()) return null
+export async function loadMatch(
+	id: string,
+	player: TrackedPlayer = PLAYERS[0],
+): Promise<Match | null> {
+	if (!apiKey() || !player) return null
 	const catalog = await getCatalog()
-	const match = await getMatch(await getArchive(PLAYER), id)
+	const match = await getMatch(await getArchive(player), id)
 	return match ? resolveMatchWeapons(match, catalog) : null
 }

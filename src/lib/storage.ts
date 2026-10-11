@@ -19,7 +19,7 @@ const env = (k: string) =>
 const SCHEMA = `
 IF OBJECT_ID('dbo.vs_games') IS NULL
 CREATE TABLE dbo.vs_games (
-  id          NVARCHAR(64)  NOT NULL PRIMARY KEY,
+  id          NVARCHAR(64)  NOT NULL,
   puuid       NVARCHAR(64)  NOT NULL,
   started_at  DATETIME2     NOT NULL,
   queue       NVARCHAR(32)  NOT NULL,
@@ -33,7 +33,8 @@ CREATE TABLE dbo.vs_games (
   rr_change   INT           NULL,
   has_detail  BIT           NOT NULL DEFAULT 0,
   data        NVARCHAR(MAX) NOT NULL,
-  updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
+  updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+  CONSTRAINT pk_vs_games PRIMARY KEY (id, puuid)
 );
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_vs_games_puuid_started')
 CREATE INDEX ix_vs_games_puuid_started ON dbo.vs_games (puuid, started_at DESC);
@@ -48,12 +49,13 @@ CREATE TABLE dbo.vs_matches (
 
 IF OBJECT_ID('dbo.vs_rr_history') IS NULL
 CREATE TABLE dbo.vs_rr_history (
-  match_id    NVARCHAR(64)  NOT NULL PRIMARY KEY,
+  match_id    NVARCHAR(64)  NOT NULL,
   puuid       NVARCHAR(64)  NOT NULL,
   date        DATETIME2     NOT NULL,
   tier        INT NOT NULL, rr INT NOT NULL, change INT NOT NULL, elo INT NOT NULL,
   map         NVARCHAR(32)  NULL,
-  season      NVARCHAR(16)  NULL
+  season      NVARCHAR(16)  NULL,
+  CONSTRAINT pk_vs_rr_history PRIMARY KEY (match_id, puuid)
 );
 
 IF OBJECT_ID('dbo.vs_meta') IS NULL
@@ -61,7 +63,26 @@ CREATE TABLE dbo.vs_meta (
   k           NVARCHAR(128) NOT NULL PRIMARY KEY,
   v           NVARCHAR(MAX) NOT NULL,
   updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
-);`
+);
+
+-- Tables created by earlier versions keyed rows by match id alone; widen to (match, player).
+DECLARE @pk_games sysname, @pk_rr sysname
+SELECT @pk_games = kc.name FROM sys.key_constraints kc
+WHERE kc.parent_object_id = OBJECT_ID('dbo.vs_games') AND kc.type = 'PK'
+  AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id) = 1
+IF @pk_games IS NOT NULL
+BEGIN
+  EXEC('ALTER TABLE dbo.vs_games DROP CONSTRAINT [' + @pk_games + ']')
+  ALTER TABLE dbo.vs_games ADD CONSTRAINT pk_vs_games PRIMARY KEY (id, puuid)
+END
+SELECT @pk_rr = kc.name FROM sys.key_constraints kc
+WHERE kc.parent_object_id = OBJECT_ID('dbo.vs_rr_history') AND kc.type = 'PK'
+  AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id) = 1
+IF @pk_rr IS NOT NULL
+BEGIN
+  EXEC('ALTER TABLE dbo.vs_rr_history DROP CONSTRAINT [' + @pk_rr + ']')
+  ALTER TABLE dbo.vs_rr_history ADD CONSTRAINT pk_vs_rr_history PRIMARY KEY (match_id, puuid)
+END`
 
 async function mssqlStorage(): Promise<Storage> {
 	const sql = (await import("mssql")).default
@@ -190,8 +211,8 @@ async function mssqlStorage(): Promise<Storage> {
 				req.input("rr", sql.Int, g.rr ?? null)
 				req.input("has_detail", sql.Bit, g.d ? 1 : 0)
 				req.input("data", sql.NVarChar(sql.MAX), JSON.stringify(g))
-				return `MERGE dbo.vs_games AS t USING (SELECT @id AS id) AS s ON t.id = s.id
-          WHEN MATCHED THEN UPDATE SET puuid=@puuid, started_at=@started_at, queue=@queue, season=@season, map=@map, agent=@agent,
+				return `MERGE dbo.vs_games AS t USING (SELECT @id AS id, @puuid AS puuid) AS s ON t.id = s.id AND t.puuid = s.puuid
+          WHEN MATCHED THEN UPDATE SET started_at=@started_at, queue=@queue, season=@season, map=@map, agent=@agent,
             result=@result, kills=@kills, deaths=@deaths, assists=@assists, score=@score, perf_score=@perf, rr_change=@rr,
             has_detail=@has_detail, data=@data, updated_at=SYSUTCDATETIME()
           WHEN NOT MATCHED THEN INSERT (id, puuid, started_at, queue, season, map, agent, result, kills, deaths, assists, score, perf_score, rr_change, has_detail, data)
@@ -208,7 +229,7 @@ async function mssqlStorage(): Promise<Storage> {
 				req.input("elo", sql.Int, r.elo)
 				req.input("map", sql.NVarChar(32), r.map)
 				req.input("season", sql.NVarChar(16), r.season)
-				return `MERGE dbo.vs_rr_history AS t USING (SELECT @id AS match_id) AS s ON t.match_id = s.match_id
+				return `MERGE dbo.vs_rr_history AS t USING (SELECT @id AS match_id, @puuid AS puuid) AS s ON t.match_id = s.match_id AND t.puuid = s.puuid
           WHEN MATCHED THEN UPDATE SET date=@date, tier=@tier, rr=@rr, change=@change, elo=@elo, map=@map, season=@season
           WHEN NOT MATCHED THEN INSERT (match_id, puuid, date, tier, rr, change, elo, map, season)
             VALUES (@id, @puuid, @date, @tier, @rr, @change, @elo, @map, @season);`
@@ -222,6 +243,13 @@ async function mssqlStorage(): Promise<Storage> {
           WHEN MATCHED THEN UPDATE SET data=@data, fetched_at=SYSUTCDATETIME()
           WHEN NOT MATCHED THEN INSERT (id, started_at, data) VALUES (@id, @started_at, @data);`
 			}),
+		async loadMeta() {
+			const p = await ready()
+			const meta = await p
+				.request()
+				.query<{ k: string; v: string }>("SELECT k, v FROM dbo.vs_meta")
+			return Object.fromEntries(meta.recordset.map((r) => [r.k, JSON.parse(r.v)]))
+		},
 		async getMatch(id) {
 			const p = await ready()
 			const r = await p
@@ -267,19 +295,30 @@ function jsonStorage(): Storage {
 			if (existsSync(archiveFile))
 				state = JSON.parse(readFileSync(archiveFile, "utf8"))
 		},
-		async loadAll() {
+		async loadAll(puuid) {
+			// Rows saved before multi-player support have no "puuid:" prefix and belong to the legacy account.
+			const legacy = (state.meta["account"] as any)?.data?.puuid
+			const mine = (key: string) =>
+				key.startsWith(`${puuid}:`) || (!key.includes(":") && puuid === legacy)
 			return {
-				games: Object.values(state.games),
-				rr: Object.values(state.rr),
+				games: Object.entries(state.games)
+					.filter(([k]) => mine(k))
+					.map(([, v]) => v),
+				rr: Object.entries(state.rr)
+					.filter(([k]) => mine(k))
+					.map(([, v]) => v),
 				meta: state.meta,
 			}
 		},
-		async saveGames(_, games) {
-			for (const g of games) state.games[g.id] = g
+		async loadMeta() {
+			return state.meta
+		},
+		async saveGames(puuid, games) {
+			for (const g of games) state.games[`${puuid}:${g.id}`] = g
 			flush()
 		},
-		async saveRR(_, points) {
-			for (const r of points) state.rr[r.matchId] = r
+		async saveRR(puuid, points) {
+			for (const r of points) state.rr[`${puuid}:${r.matchId}`] = r
 			flush()
 		},
 		async saveMatch(m) {
@@ -335,9 +374,10 @@ async function migrateLocal(target: Storage) {
 
 	const local = jsonStorage()
 	await local.init()
-	const { games, rr, meta } = await local.loadAll("")
+	const meta = await local.loadMeta()
 	const puuid = (meta["account"] as any)?.data?.puuid as string | undefined
 	if (!puuid) return
+	const { games, rr } = await local.loadAll(puuid)
 
 	console.log(
 		`[storage] migrating ${games.length} games, ${rr.length} RR points to SQL Server…`,

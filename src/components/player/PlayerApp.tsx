@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import clsx from "clsx"
 import { useView } from "@/hooks/useView"
+import { PlayerContext } from "@/hooks/usePlayer"
+import { PlayerNav } from "@/components/PlayerNav"
 import {
 	Block,
 	ErrorBox,
@@ -29,6 +31,8 @@ import type {
 } from "@/interfaces/views"
 import type { Game } from "@/interfaces/game"
 import type { Period } from "@/interfaces/stats"
+import { PERIODS, queueOptions } from "@/lib/filters"
+import type { TrackedPlayer } from "@/interfaces/players"
 
 const TABS = [
 	{ value: "overview", label: "Resumen" },
@@ -41,30 +45,9 @@ const TABS = [
 ] as const
 type Tab = (typeof TABS)[number]["value"]
 
-const QUEUE_LABELS: Record<string, string> = {
-	competitive: "Competitivo",
-	unrated: "No clasif.",
-	swiftplay: "Swiftplay",
-	premier: "Premier",
-	spikerush: "Spike Rush",
-	deathmatch: "Deathmatch",
-	teamdeathmatch: "TDM",
-	escalation: "Escalation",
-	allrandomonesite: "ARAO",
-	knockout: "Knockout",
-	custom: "Personalizada",
-	unknown: "Otros",
-	all: "Todo",
-}
-
-const PERIODS: { value: Period; label: string }[] = [
-	{ value: "all", label: "Todo" },
-	{ value: "act", label: "Acto actual" },
-	{ value: "50", label: "Últimas 50" },
-	{ value: "20", label: "Últimas 20" },
-]
-
 interface Props {
+	slug: string
+	players: TrackedPlayer[]
 	data: Shell
 	catalog: Catalog
 	initialTab?: string
@@ -72,7 +55,17 @@ interface Props {
 	initialPeriod?: string
 }
 
-export default function PlayerApp({
+export default function PlayerApp(props: Props) {
+	return (
+		<PlayerContext.Provider value={props.slug}>
+			<Dashboard {...props} />
+		</PlayerContext.Provider>
+	)
+}
+
+function Dashboard({
+	slug,
+	players,
 	data,
 	catalog,
 	initialTab,
@@ -109,21 +102,7 @@ export default function PlayerApp({
 			})
 	}
 
-	const queues = useMemo(() => {
-		const order = Object.keys(QUEUE_LABELS)
-		const present = [...data.queues].sort(
-			(a, b) =>
-				(order.indexOf(a.queue) + 1 || order.length + 1) -
-					(order.indexOf(b.queue) + 1 || order.length + 1) || b.count - a.count,
-		)
-		return [
-			...present.map((q) => ({
-				value: q.queue,
-				label: QUEUE_LABELS[q.queue] ?? q.mode ?? q.queue,
-			})),
-			{ value: "all", label: QUEUE_LABELS.all },
-		]
-	}, [data.queues])
+	const queues = useMemo(() => queueOptions(data.queues), [data.queues])
 
 	const filters = useMemo(() => ({ mode: queue, period }), [queue, period])
 	const summary = useView<SummaryView>("summary", filters).data?.summary
@@ -132,6 +111,7 @@ export default function PlayerApp({
 	return (
 		<CatalogProvider value={catalog}>
 			<main className="mx-auto max-w-[1240px] px-4 pt-5 pb-24 sm:px-6 sm:pt-8">
+				<PlayerNav players={players} current={slug} />
 				<Hero profile={data.profile} summary={summary} sync={data.sync} />
 
 				<div

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { usePlayerSlug } from "@/hooks/usePlayer"
 
 const cache = new Map<string, unknown>()
 const inflight = new Map<string, Promise<unknown>>()
@@ -32,9 +33,13 @@ export function fetchView<T>(url: string): Promise<T> {
 	return req as Promise<T>
 }
 
-/** Fetches a precomputed view; repeated or revisited requests are served from memory. */
+/** Fetches a precomputed view of the current player; repeated or revisited requests are served from memory. */
 export function useView<T>(view: string, params: ViewParams, enabled = true) {
-	const url = viewUrl(view, params)
+	const player = usePlayerSlug()
+	return useJson<T>(viewUrl(view, { player, ...params }), enabled)
+}
+
+export function useJson<T>(url: string, enabled = true) {
 	const [state, setState] = useState<{
 		url: string
 		data?: T

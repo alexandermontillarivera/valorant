@@ -22,10 +22,10 @@ export const lean = (g: Game): Game =>
 		? { ...g, d: { ...g.d, pts: [], weapons: {}, killedBy: {}, players: [] } }
 		: g
 
-const slim = (groups: Group[]): Group[] =>
+export const slim = (groups: Group[]): Group[] =>
 	groups.map((g) => ({ ...g, best: {} }))
 
-function leanSummary(s: Summary): Summary {
+export function leanSummary(s: Summary): Summary {
 	const best: Summary["best"] = {}
 	for (const [k, b] of Object.entries(s.best))
 		if (b)

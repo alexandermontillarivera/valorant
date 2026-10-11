@@ -1,37 +1,42 @@
 ---
 import Layout from "@/layouts/Layout.astro"
-import PlayerApp from "@/components/player/PlayerApp"
+import Profiles from "@/components/home/Profiles"
 import ErrorState from "@/components/ErrorState.astro"
-import { PLAYER, loadDashboard } from "@/lib/dashboard"
-import { shellOf } from "@/lib/views"
+import { loadDashboard } from "@/lib/dashboard"
+import { PLAYERS } from "@/lib/players"
+import { getCatalog } from "@/lib/catalog"
+import { filterGames, summarize } from "@/lib/stats"
+import { leanSummary } from "@/lib/views"
+import type { ProfileCard } from "@/interfaces/versus"
 
-const url = Astro.url
-const result = await loadDashboard()
-if (!result.ok) Astro.response.status = result.status
-const param = (k: string) => url.searchParams.get(k) ?? undefined
+if (PLAYERS.length === 1) return Astro.redirect(`/p/${PLAYERS[0].slug}`)
 
-const titles: Record<number, string> = {
-	404: "Jugador no encontrado",
-	503: "Preparando tus estadísticas",
-}
+const catalog = await getCatalog()
+// Profiles still on their first sync render as placeholders instead of blocking the page.
+const cards: ProfileCard[] = await Promise.all(
+	PLAYERS.map(async (p) => {
+		const result = await loadDashboard(p, false)
+		if (!result.ok) return { ...p, ok: false, message: result.message }
+		const games = filterGames(result.data.games, "competitive", "act")
+		return {
+			...p,
+			ok: true,
+			profile: result.data.profile,
+			summary: leanSummary(summarize(games)),
+			form: games.slice(0, 8).map((g) => g.result),
+		}
+	}),
+)
 ---
 
-<Layout title={`${PLAYER.name}#${PLAYER.tag}`}>
-	{result.ok ? (
-		<PlayerApp
-			client:load
-			data={shellOf(result.data)}
-			catalog={result.catalog}
-			initialTab={param("tab")}
-			initialMode={param("mode")}
-			initialPeriod={param("period")}
-		/>
+<Layout title="Perfiles">
+	{PLAYERS.length ? (
+		<Profiles client:load cards={cards} catalog={catalog} />
 	) : (
 		<ErrorState
-			code={String(result.status)}
-			title={titles[result.status] ?? "No se pudieron cargar los datos"}
-			message={result.message}
-			retry
+			code="500"
+			title="Sin jugadores configurados"
+			message='Define PLAYER_RIOT_IDS="Nombre#TAG,Otro#TAG" en el entorno.'
 		/>
 	)}
 </Layout>
